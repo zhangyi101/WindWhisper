@@ -1,0 +1,35 @@
+# Build / dist
+build/
+dist/
+*.spec
+
+# User config (contains private info)
+config.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.eggs/
+
+# Test files
+test2.py
+
+# Environment
+.env
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Downloaded reference images
+image_download*.png
