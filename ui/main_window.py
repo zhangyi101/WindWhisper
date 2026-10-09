@@ -1,10 +1,17 @@
 """
-风哨桌面版 — 主窗口
+风语 v2.0 — 主窗口
 包含：数据任务、配置、定时任务、日志 四个标签页
+
+v2.0 改进：
+- 文件菜单：打开数据目录/塔文件夹/重新加载塔信息表
+- 设置菜单：字体大小/图标大小/角色头像大小调节
+- TaskPanel：刷新塔列表按钮
+- 修复：_test_now 实现、filename 变量 bug、日志输出改善
 """
 import os
 import sys
 import json
+import subprocess
 from datetime import datetime, date, timedelta
 
 from PyQt5.QtWidgets import (
@@ -12,7 +19,8 @@ from PyQt5.QtWidgets import (
     QTabWidget, QPushButton, QCheckBox, QTreeWidget, QTreeWidgetItem,
     QLabel, QDateEdit, QGroupBox, QGridLayout, QTextEdit,
     QFileDialog, QMessageBox, QProgressBar, QSplitter, QFrame,
-    QLineEdit, QScrollArea, QSizePolicy, QComboBox, QSpinBox
+    QLineEdit, QScrollArea, QSizePolicy, QComboBox, QSpinBox,
+    QSlider, QAction
 )
 from PyQt5.QtCore import Qt, QDate, QThread, pyqtSignal, QTimer, QPoint, QSize
 from PyQt5.QtGui import QFont, QIcon, QColor, QPixmap
@@ -80,11 +88,12 @@ class TaskWorker(QThread):
 
 class TaskPanel(QWidget):
     """数据任务面板"""
-    def __init__(self, config, executor, log_widget):
+    def __init__(self, config, executor, log_widget, main_window=None):
         super().__init__()
         self.config = config
         self.executor = executor
         self.log_widget = log_widget
+        self.main_window = main_window
         self.all_towers = []
         self.selected_towers = []
         self._setup_ui()
@@ -97,10 +106,26 @@ class TaskPanel(QWidget):
         # 项目选择区
         proj_group = QGroupBox("选择项目")
         proj_layout = QVBoxLayout(proj_group)
+
+        # 刷新按钮行
+        refresh_layout = QHBoxLayout()
+        refresh_btn = QPushButton("🔄 刷新塔列表")
+        refresh_btn.setToolTip("重新读取 Excel 表格，更新塔列表")
+        refresh_btn.clicked.connect(self._refresh_towers)
+        refresh_layout.addWidget(refresh_btn)
+        refresh_layout.addStretch()
+
+        # 显示当前 Excel 路径
+        self.excel_label = QLabel()
+        self.excel_label.setStyleSheet("color: #888; font-size: 11px;")
+        refresh_layout.addWidget(self.excel_label)
+        proj_layout.addLayout(refresh_layout)
+
         self.project_tree = QTreeWidget()
-        self.project_tree.setHeaderLabels(["项目 / 测风塔", "编号", "状态"])
+        self.project_tree.setHeaderLabels(["项目 / 测风塔", "编号", "密码", "状态"])
         self.project_tree.setColumnWidth(0, 250)
         self.project_tree.setColumnWidth(1, 100)
+        self.project_tree.setColumnWidth(2, 80)
         self.project_tree.setIndentation(20)
         self.project_tree.itemChanged.connect(self._on_item_changed)
         proj_layout.addWidget(self.project_tree)
@@ -171,13 +196,38 @@ class TaskPanel(QWidget):
         # 进度条
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        layout.addWidget(self.progress_bar)
+        layout.addWidget(progress_bar)
+
+    def _refresh_towers(self):
+        """重新读取 Excel，刷新塔列表"""
+        self.log_widget.append_log("正在重新读取测风塔信息表...", "info")
+        # 重新加载 config（以防 Excel 路径变了）
+        if self.main_window:
+            self.main_window._reload_config()
+        self._load_towers()
 
     def _load_towers(self):
         """从 Excel 加载塔列表到树"""
         self.project_tree.blockSignals(True)
         self.project_tree.clear()
+
+        # 更新 Excel 路径显示
+        excel_name = os.path.basename(self.config.excel_path) if self.config.excel_path else "(未配置)"
+        self.excel_label.setText(f"当前表格: {excel_name}")
+
         self.all_towers = self.config.get_tower_list()
+
+        if not self.all_towers:
+            self.log_widget.append_log("⚠ 未读取到任何塔信息，请检查 Excel 表格", "warn")
+            # 显示映射信息帮助排查
+            info = self.config.get_column_mapping_info()
+            if "error" in info:
+                self.log_widget.append_log(f"  错误: {info['error']}", "error")
+            else:
+                self.log_widget.append_log(f"  匹配到的列: {info.get('matched', {})}", "info")
+                self.log_widget.append_log(f"  缺失的列: {info.get('missing', [])}", "warn")
+        else:
+            self.log_widget.append_log(f"✅ 读取到 {len(self.all_towers)} 个测风塔", "ok")
 
         # 按项目分组
         projects = {}
@@ -188,15 +238,17 @@ class TaskPanel(QWidget):
             projects[proj].append(t)
 
         for proj_name in sorted(projects.keys()):
-            proj_item = QTreeWidgetItem([proj_name, "", ""])
+            proj_item = QTreeWidgetItem([proj_name, "", "", ""])
             proj_item.setFlags(proj_item.flags() | Qt.ItemIsUserCheckable)
             proj_item.setCheckState(0, Qt.Checked)
             proj_item.setData(0, Qt.UserRole, "project")
 
             for t in projects[proj_name]:
+                pwd_display = t.get("decrypt_pwd", "") or "—"
                 tower_item = QTreeWidgetItem([
                     f"  塔 {t['short_code']}",
                     t["full_code"],
+                    pwd_display,
                     ""
                 ])
                 tower_item.setFlags(tower_item.flags() | Qt.ItemIsUserCheckable)
@@ -291,7 +343,6 @@ class TaskPanel(QWidget):
             first = r.get("first_date", "?")
             last = r.get("last_date", "?")
             if r.get("is_complete"):
-                all_complete = True
                 self.log_widget.append_log(
                     f"  ✅ {sc}：{existing} 个文件 ({first} ~ {last})，完整", "ok")
             else:
@@ -314,9 +365,9 @@ class TaskPanel(QWidget):
                 if t and t["short_code"] in results:
                     r = results[t["short_code"]]
                     if r.get("is_complete"):
-                        child.setText(2, "✅ 完整")
+                        child.setText(3, "✅ 完整")
                     else:
-                        child.setText(2, f"⚠ 缺{len(r.get('missing_dates',[]))}天")
+                        child.setText(3, f"⚠ 缺{len(r.get('missing_dates',[]))}天")
 
         if all_complete:
             self.log_widget.append_log("所有塔数据完整！可直接解密转换。", "ok")
@@ -366,13 +417,23 @@ class TaskPanel(QWidget):
         self.log_widget.append_log(f"转换: {report.get('convert_summary', {}).get('converted', 0)} 个", "info")
         self.log_widget.append_log("=" * 40, "info")
 
+    def get_selected_tower(self):
+        """获取当前选中的单个塔（用于文件菜单"打开塔文件夹"）"""
+        items = self.project_tree.selectedItems()
+        if items:
+            item = items[0]
+            if item.data(0, Qt.UserRole) == "tower":
+                return item.data(1, Qt.UserRole)
+        return None
+
 
 class ConfigPanel(QWidget):
     """配置面板"""
-    def __init__(self, config, log_widget):
+    def __init__(self, config, log_widget, main_window=None):
         super().__init__()
         self.config = config
         self.log_widget = log_widget
+        self.main_window = main_window
         self._setup_ui()
 
     def _setup_ui(self):
@@ -461,6 +522,9 @@ class ConfigPanel(QWidget):
 
         if self.config.save():
             self.log_widget.append_log("配置已保存", "ok")
+            # 通知主窗口刷新塔列表
+            if self.main_window:
+                self.main_window._reload_config()
         else:
             self.log_widget.append_log("配置保存失败", "error")
 
@@ -589,14 +653,47 @@ class SchedulePanel(QWidget):
             self.log_widget.append_log(f"创建定时任务失败: {e}", "error")
 
     def _test_now(self):
-        self.log_widget.append_log("定时任务测试：立即执行...", "info")
+        """立即执行一次测试任务（上月数据，仅检测不下载）"""
+        self.log_widget.append_log("定时任务测试：立即执行（仅检测完整性）...", "info")
+        from core.integrity_checker import IntegrityChecker
+        checker = IntegrityChecker()
+
+        # 获取上月日期范围
+        today = date.today()
+        if today.month == 1:
+            prev_month = date(today.year - 1, 12, 1)
+        else:
+            prev_month = date(today.year, today.month - 1, 1)
+        d_from = datetime.combine(prev_month, datetime.min.time())
+        d_to = datetime.combine(today.replace(day=1) - timedelta(days=1), datetime.min.time())
+
+        towers = self.config.get_tower_list()
+        if not towers:
+            self.log_widget.append_log("  ⚠ 未读取到塔信息，请检查 Excel 表格", "warn")
+            return
+
+        results = checker.check_towers(towers, self.config.data_root, d_from, d_to)
+        total_ok = 0
+        total_missing = 0
+        for sc, r in results.items():
+            if r.get("is_complete"):
+                total_ok += 1
+                self.log_widget.append_log(f"  ✅ {sc}: {r['existing']}/{r['expected']} 完整", "ok")
+            else:
+                missing = len(r.get("missing_dates", []))
+                total_missing += missing
+                self.log_widget.append_log(f"  ⚠ {sc}: {r['existing']}/{r['expected']} 缺{missing}天", "warn")
+
+        self.log_widget.append_log(
+            f"测试完成: {total_ok}/{len(results)} 个塔完整，共缺 {total_missing} 天",
+            "ok" if total_missing == 0 else "warn")
 
 
 class MainWindow(QMainWindow):
-    """风哨主窗口"""
+    """风语主窗口 v2.0"""
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("风语 v1.0 — 测风塔数据自动化工具")
+        self.setWindowTitle("风语 v2.0 — 测风塔数据自动化工具")
         self.setMinimumSize(900, 650)
 
         # 初始化核心
@@ -616,8 +713,48 @@ class MainWindow(QMainWindow):
 
         # 文件菜单
         file_menu = menubar.addMenu("文件(&F)")
-        exit_action = file_menu.addAction("退出(&X)")
+
+        # 重新加载塔信息表
+        reload_action = QAction("🔄 重新加载塔信息表", self)
+        reload_action.setShortcut("F5")
+        reload_action.setStatusTip("重新读取 Excel 表格，更新塔列表")
+        reload_action.triggered.connect(self._reload_config)
+        file_menu.addAction(reload_action)
+
+        file_menu.addSeparator()
+
+        # 打开数据目录
+        open_data_action = QAction("📂 打开数据目录", self)
+        open_data_action.setStatusTip("在资源管理器中打开数据存储根目录")
+        open_data_action.triggered.connect(self._open_data_dir)
+        file_menu.addAction(open_data_action)
+
+        # 打开选中塔的文件夹
+        open_tower_action = QAction("📁 打开选中塔文件夹", self)
+        open_tower_action.setStatusTip("在资源管理器中打开当前选中塔的数据目录")
+        open_tower_action.triggered.connect(self._open_tower_dir)
+        file_menu.addAction(open_tower_action)
+
+        # 打开 TXT 输出目录
+        open_txt_action = QAction("📄 打开 TXT 输出目录", self)
+        open_txt_action.setStatusTip("在资源管理器中打开选中塔的解密输出目录")
+        open_txt_action.triggered.connect(self._open_txt_dir)
+        file_menu.addAction(open_txt_action)
+
+        file_menu.addSeparator()
+
+        # 打开 Excel 表格
+        open_excel_action = QAction("📊 打开测风塔信息表", self)
+        open_excel_action.setStatusTip("用默认程序打开 Excel 表格")
+        open_excel_action.triggered.connect(self._open_excel)
+        file_menu.addAction(open_excel_action)
+
+        file_menu.addSeparator()
+
+        exit_action = QAction("退出(&X)", self)
+        exit_action.setShortcut("Ctrl+Q")
         exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
 
         # 设置菜单
         settings_menu = menubar.addMenu("设置(&S)")
@@ -636,7 +773,25 @@ class MainWindow(QMainWindow):
             action.setData(key)
             action.triggered.connect(lambda checked, k=key: self._load_theme(k))
 
+        # 显示设置子菜单
+        display_menu = settings_menu.addMenu("显示设置")
+
+        # 字体大小
+        display_menu.addAction(QAction("字体大小...", self, triggered=self._adjust_font_size))
+
+        # 图标大小
+        display_menu.addAction(QAction("图标大小...", self, triggered=self._adjust_icon_size))
+
+        # 角色头像大小
+        display_menu.addAction(QAction("角色头像大小...", self, triggered=self._adjust_char_icon_size))
+
+        # 重置显示
+        display_menu.addSeparator()
+        display_menu.addAction(QAction("重置为默认", self, triggered=self._reset_display))
+
         settings_menu.addSeparator()
+
+        # 使用和开发说明
         doc_action = settings_menu.addAction("使用和开发说明")
         doc_action.triggered.connect(self._show_docs)
 
@@ -644,10 +799,11 @@ class MainWindow(QMainWindow):
         help_menu = menubar.addMenu("帮助(&H)")
         about_action = help_menu.addAction("关于风语")
         about_action.triggered.connect(lambda: QMessageBox.about(
-            self, "关于风哨",
-            "风语 v1.0\n测风塔数据自动化工具\n\n"
+            self, "关于风语",
+            "风语 v2.0\n测风塔数据自动化工具\n\n"
             "自动从邮箱下载原始数据(.rld)\n"
             "解密转换为可读文本(.txt)\n\n"
+            "v2.0: 动态表头匹配 + 显示设置 + 文件菜单增强\n\n"
             "开发者：曦儿"
         ))
 
@@ -656,8 +812,8 @@ class MainWindow(QMainWindow):
 
         # 标签页
         self.tabs = QTabWidget()
-        self.tab_task = TaskPanel(self.config, self.executor, self.log_widget)
-        self.tab_config = ConfigPanel(self.config, self.log_widget)
+        self.tab_task = TaskPanel(self.config, self.executor, self.log_widget, self)
+        self.tab_config = ConfigPanel(self.config, self.log_widget, self)
         self.tab_schedule = SchedulePanel(self.config, self.executor, self.log_widget)
 
         self.tabs.addTab(self.tab_task, "📋 数据任务")
@@ -665,20 +821,62 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.tab_schedule, "⏰ 定时任务")
 
         # 角色按钮栏
-        char_bar = QHBoxLayout()
+        self.char_bar_widget, self.char_bar_layout, self.char_buttons = self._build_char_bar()
+
+        # 把标签页和图标栏包在一起
+        top_widget = QWidget()
+        top_layout = QVBoxLayout(top_widget)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(2)
+        top_layout.addWidget(self.tabs)
+        top_layout.addWidget(self.char_bar_widget)
+
+        # 分割器：上部（标签页+图标栏） + 下部（日志）
+        splitter = QSplitter(Qt.Vertical)
+        splitter.addWidget(top_widget)
+        splitter.addWidget(self.log_widget)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 1)
+        layout.addWidget(splitter)
+
+        # 状态栏
+        self.statusBar().showMessage("就绪")
+
+        # 启动日志
+        self.log_widget.append_log("风语 v2.0 启动", "info")
+        self.log_widget.append_log(f"[图标] 加载了 {len(self.char_buttons)} 个角色头像", "info")
+        self.log_widget.append_log(f"配置文件: {self.config.config_path}", "info")
+        self.log_widget.append_log(f"数据目录: {self.config.data_root}", "info")
+        if os.path.exists(self.config.excel_path):
+            self.log_widget.append_log("✅ 测风塔信息表已找到", "ok")
+        else:
+            self.log_widget.append_log("⚠ 测风塔信息表未找到，请检查配置", "warn")
+
+        # 加载默认主题：念头通达
+        self._load_theme("fanren_xiuxian")
+
+        # 应用显示设置
+        self._apply_display_settings()
+
+    def _build_char_bar(self):
+        """构建角色按钮栏，返回 (widget, layout, buttons) 以便后续调整大小"""
+        import random
+
+        char_bar_widget = QWidget()
+        char_bar = QHBoxLayout(char_bar_widget)
+        char_bar.setContentsMargins(0, 0, 0, 0)
         char_bar.setSpacing(6)
-        import os as _os, sys as _sys, random as _random
 
         # PyInstaller资源路径
-        if getattr(_sys, 'frozen', False):
-            base = _sys._MEIPASS
+        if getattr(sys, 'frozen', False):
+            base = sys._MEIPASS
         else:
-            base = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+            base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
         # 加载台词
         quotes_dict = {}
-        quote_path = _os.path.join(base, "resources", "icons", "quotes.txt")
-        if _os.path.exists(quote_path):
+        quote_path = os.path.join(base, "resources", "icons", "quotes.txt")
+        if os.path.exists(quote_path):
             with open(quote_path, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
@@ -690,7 +888,7 @@ class MainWindow(QMainWindow):
                             quotes_dict[name] = []
                         quotes_dict[name].append(quote.strip())
 
-        char_dir = _os.path.join(base, "resources", "icons", "characters")
+        char_dir = os.path.join(base, "resources", "icons", "characters")
 
         # 文件名→中文角色名 对照表
         name_map = {
@@ -700,19 +898,21 @@ class MainWindow(QMainWindow):
             "xuangu": "玄骨", "mupeiling": "慕沛灵", "nangongwan": "南宫婉",
         }
 
+        buttons = []
         count = 0
-        if _os.path.isdir(char_dir):
-            for fn in sorted(_os.listdir(char_dir)):
+        if os.path.isdir(char_dir):
+            for fn in sorted(os.listdir(char_dir)):
                 if fn.endswith(".png"):
                     name = fn.replace(".png", "")
-                    display_name = name_map.get(name, name)  # 中文名
-                    eng_name = name  # 文件名（英文）
+                    display_name = name_map.get(name, name)
 
                     btn = QPushButton()
-                    btn.setFixedSize(72, 72)
-                    btn.setIcon(QIcon(_os.path.join(char_dir, fn)))
-                    btn.setIconSize(QSize(48, 48))
-                    btn.setToolTip("")  # 不显示名字
+                    icon_size = self.config.char_icon_size
+                    btn_size = icon_size + 24
+                    btn.setFixedSize(btn_size, btn_size)
+                    btn.setIcon(QIcon(os.path.join(char_dir, fn)))
+                    btn.setIconSize(QSize(icon_size, icon_size))
+                    btn.setToolTip("")
                     btn.setStyleSheet("""
                         QPushButton { border: 2px solid #555; border-radius: 8px; background: transparent; }
                         QPushButton:hover { border-color: #aaa; background: rgba(255,255,255,0.1); }
@@ -733,7 +933,7 @@ class MainWindow(QMainWindow):
                             self_ql.hide()
                         def show_quote(self_ql, pos):
                             if self_ql.quotes:
-                                txt = _random.choice(self_ql.quotes)
+                                txt = random.choice(self_ql.quotes)
                                 self_ql.setText(txt)
                                 self_ql.adjustSize()
                                 self_ql.move(pos)
@@ -747,43 +947,178 @@ class MainWindow(QMainWindow):
                     btn.leaveEvent = lambda e, b=btn: b.quote_label.hide()
 
                     char_bar.addWidget(btn)
+                    buttons.append(btn)
                     count += 1
         char_bar.addStretch()
 
-        # 把标签页和图标栏包在一起
-        top_widget = QWidget()
-        top_layout = QVBoxLayout(top_widget)
-        top_layout.setContentsMargins(0, 0, 0, 0)
-        top_layout.setSpacing(2)
-        top_layout.addWidget(self.tabs)
-        top_layout.addLayout(char_bar)
+        return char_bar_widget, char_bar, buttons
 
-        # 分割器：上部（标签页+图标栏） + 下部（日志）
-        splitter = QSplitter(Qt.Vertical)
-        splitter.addWidget(top_widget)
-        splitter.addWidget(self.log_widget)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
-        layout.addWidget(splitter)
+    def _reload_config(self):
+        """重新加载配置 + 刷新塔列表"""
+        from core.config_loader import Config
+        self.config = Config()
+        self.executor.config = self.config
+        # 刷新各面板
+        self.tab_task.config = self.config
+        self.tab_task.executor = self.executor
+        self.tab_task._load_towers()
+        self.tab_config.config = self.config
+        self.log_widget.append_log("配置已重新加载", "info")
 
-        # 状态栏
-        self.statusBar().showMessage("就绪")
+    # ============================================================
+    # 文件菜单动作
+    # ============================================================
 
-        # 启动日志
-        self.log_widget.append_log("风语 v1.0 启动", "info")
-        self.log_widget.append_log(f"[图标] 加载了 {count} 个角色头像", "info") if count > 0 else None
+    def _open_data_dir(self):
+        """在资源管理器中打开数据存储根目录"""
+        path = self.config.data_root
+        if path and os.path.isdir(path):
+            subprocess.Popen(['explorer', path])
+            self.log_widget.append_log(f"打开数据目录: {path}", "info")
+        else:
+            QMessageBox.warning(self, "提示", f"数据目录不存在:\n{path}")
 
-        # 加载默认主题：念头通达
-        self._load_theme("fanren_xiuxian")
+    def _open_tower_dir(self):
+        """打开选中塔的文件夹"""
+        tower = self.tab_task.get_selected_tower()
+        if not tower:
+            # 尝试取第一个选中的塔
+            if self.tab_task.selected_towers:
+                tower = self.tab_task.selected_towers[0]
+        if not tower:
+            QMessageBox.warning(self, "提示", "请先在列表中选择一个塔")
+            return
+
+        path = os.path.join(self.config.data_root, tower["short_code"])
+        if os.path.isdir(path):
+            subprocess.Popen(['explorer', path])
+            self.log_widget.append_log(f"打开塔目录: {path}", "info")
+        else:
+            reply = QMessageBox.question(
+                self, "提示",
+                f"塔 {tower['short_code']} 的目录尚不存在:\n{path}\n\n是否创建？",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                os.makedirs(path, exist_ok=True)
+                subprocess.Popen(['explorer', path])
+                self.log_widget.append_log(f"创建并打开塔目录: {path}", "ok")
+
+    def _open_txt_dir(self):
+        """打开选中塔的 TXT 输出目录"""
+        tower = self.tab_task.get_selected_tower()
+        if not tower and self.tab_task.selected_towers:
+            tower = self.tab_task.selected_towers[0]
+        if not tower:
+            QMessageBox.warning(self, "提示", "请先在列表中选择一个塔")
+            return
+
+        path = os.path.join(self.config.data_root, tower["short_code"], "TXT输出")
+        if os.path.isdir(path):
+            subprocess.Popen(['explorer', path])
+            self.log_widget.append_log(f"打开 TXT 输出目录: {path}", "info")
+        else:
+            QMessageBox.information(self, "提示", f"TXT 输出目录尚不存在:\n{path}\n\n请先执行一次解密转换任务。")
+
+    def _open_excel(self):
+        """用默认程序打开 Excel 表格"""
+        path = self.config.excel_path
+        if path and os.path.exists(path):
+            os.startfile(path)
+            self.log_widget.append_log(f"打开 Excel: {path}", "info")
+        else:
+            QMessageBox.warning(self, "提示", f"Excel 文件不存在:\n{path}")
+
+    # ============================================================
+    # 显示设置
+    # ============================================================
+
+    def _adjust_font_size(self):
+        """调整字体大小"""
+        from PyQt5.QtWidgets import QInputDialog
+        val, ok = QInputDialog.getInt(
+            self, "字体大小", "字体大小 (8-20):",
+            value=self.config.font_size, minValue=8, maxValue=20, step=1
+        )
+        if ok:
+            self.config.font_size = val
+            self.config.save()
+            self._apply_display_settings()
+            self.log_widget.append_log(f"字体大小已设为 {val}", "ok")
+
+    def _adjust_icon_size(self):
+        """调整图标大小"""
+        from PyQt5.QtWidgets import QInputDialog
+        val, ok = QInputDialog.getInt(
+            self, "图标大小", "按钮图标大小 (24-96):",
+            value=self.config.icon_size, minValue=24, maxValue=96, step=4
+        )
+        if ok:
+            self.config.icon_size = val
+            self.config.save()
+            self._apply_display_settings()
+            self.log_widget.append_log(f"图标大小已设为 {val}", "ok")
+
+    def _adjust_char_icon_size(self):
+        """调整角色头像大小"""
+        from PyQt5.QtWidgets import QInputDialog
+        val, ok = QInputDialog.getInt(
+            self, "角色头像大小", "角色头像大小 (48-128):",
+            value=self.config.char_icon_size, minValue=48, maxValue=128, step=4
+        )
+        if ok:
+            self.config.char_icon_size = val
+            self.config.save()
+            self._apply_display_settings()
+            self.log_widget.append_log(f"角色头像大小已设为 {val}", "ok")
+
+    def _reset_display(self):
+        """重置显示设置为默认"""
+        self.config.font_size = 10
+        self.config.icon_size = 48
+        self.config.char_icon_size = 72
+        self.config.save()
+        self._apply_display_settings()
+        self.log_widget.append_log("显示设置已重置为默认", "ok")
+
+    def _apply_display_settings(self):
+        """应用当前显示设置到界面"""
+        font_size = self.config.font_size
+        icon_size = self.config.icon_size
+        char_size = self.config.char_icon_size
+
+        # 全局字体
+        app = QApplication.instance()
+        font = app.font()
+        font.setPointSize(font_size)
+        app.setFont(font)
+
+        # 日志面板字体
+        self.log_widget.setFont(QFont("Consolas", font_size))
+
+        # 角色头像大小
+        btn_size = char_size + 24
+        for btn in getattr(self, 'char_buttons', []):
+            btn.setFixedSize(btn_size, btn_size)
+            btn.setIconSize(QSize(char_size, char_size))
+
+    # ============================================================
+    # 主题和文档
+    # ============================================================
 
     def _load_theme(self, name):
         import os
-        theme_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                 "resources", "themes")
-        path = os.path.join(theme_dir, f"{name}.qss")
+        if getattr(sys, 'frozen', False):
+            base = sys._MEIPASS
+        else:
+            base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(base, "resources", "themes", f"{name}.qss")
         if os.path.exists(path):
             with open(path, "r", encoding="utf-8") as f:
                 QApplication.instance().setStyleSheet(f.read())
+            self.log_widget.append_log(f"主题已切换: {name}", "info")
+        else:
+            self.log_widget.append_log(f"主题文件不存在: {path}", "warn")
 
     def _show_docs(self):
         """弹窗显示使用和开发说明"""
@@ -806,16 +1141,16 @@ class MainWindow(QMainWindow):
                 content = "无法读取文档文件"
         else:
             content = (
-                "# 风语 v1.0 开发说明\n\n"
+                "# 风语 v2.0 开发说明\n\n"
                 "项目结构见 D:\\WindWatcher\\resources\\开发说明.md\n\n"
                 "## 核心模块\n"
-                "core/config_loader.py — 读取config.json和Excel\n"
+                "core/config_loader.py — 读取config.json和Excel（v2.0: 动态表头匹配）\n"
                 "core/executor.py — 任务编排\n"
                 "core/email_fetcher.py — POP3邮箱下载\n"
                 "core/integrity_checker.py — 本地完整性检查\n"
                 "core/converter.py — .rld解密转换\n\n"
                 "## 界面\n"
-                "ui/main_window.py — 主窗口+面板+角色栏\n\n"
+                "ui/main_window.py — 主窗口+面板+角色栏（v2.0: 文件菜单+显示设置）\n\n"
                 "## 主题\n"
                 "resources/themes/ — QSS主题文件\n"
                 "修改后重新打包即可生效\n\n"
@@ -827,19 +1162,12 @@ class MainWindow(QMainWindow):
         dlg = QMessageBox(self)
         dlg.setWindowTitle("使用和开发说明")
         dlg.setText("")
-        # 用QTextEdit展示markdown风格文本
         te = QTextEdit()
         te.setReadOnly(True)
         te.setPlainText(content)
         te.setMinimumSize(700, 500)
         dlg.layout().addWidget(te, 0, 0, 1, dlg.layout().columnCount())
         dlg.exec_()
-        self.log_widget.append_log(f"配置文件: {self.config.config_path}", "info")
-        self.log_widget.append_log(f"数据目录: {self.config.data_root}", "info")
-        if os.path.exists(self.config.excel_path):
-            self.log_widget.append_log("✅ 测风塔信息表已找到", "ok")
-        else:
-            self.log_widget.append_log("⚠ 测风塔信息表未找到，请检查配置", "warn")
 
 
 def main():

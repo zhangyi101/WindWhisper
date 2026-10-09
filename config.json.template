@@ -1,13 +1,18 @@
 {
   "邮箱": {
     "账号": "your_email@163.com",
-    "授权码": "your_pop3_authorization_code"
+    "授权码": "请在这里填写网易邮箱授权码"
   },
   "路径": {
-    "测风塔信息表": "C:\Path\To\Tower_Info.xlsx",
-    "数据存储目录": "D:\WindData"
+    "测风塔信息表": "",
+    "数据存储目录": "D:\\测风数据文件"
   },
   "解密": {
-    "SymphoniePRO路径": "C:\Program Files (x86)\Renewable NRG Systems\SymPRO Desktop\SymPRODesktop.exe"
+    "SymphoniePRO路径": "C:\\Program Files (x86)\\Renewable NRG Systems\\SymPRO Desktop\\SymPRODesktop.exe"
+  },
+  "显示": {
+    "字体大小": 10,
+    "图标大小": 48,
+    "角色头像大小": 72
   }
 }

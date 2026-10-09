@@ -212,7 +212,7 @@ class EmailFetcher:
                         downloaded[short_code] = {"new": [], "skipped": []}
                     downloaded[short_code]["new"].append(fname)
                 except Exception as e:
-                    print(f"下载失败 {filename}: {e}")
+                    print(f"下载失败 {fname}: {e}")
                     continue
             if progress_callback and (idx + 1) % 10 == 0:
                 progress_callback(idx + 1, total)
