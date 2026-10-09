@@ -196,7 +196,7 @@ class TaskPanel(QWidget):
         # 进度条
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
-        layout.addWidget(progress_bar)
+        layout.addWidget(self.progress_bar)
 
     def _refresh_towers(self):
         """重新读取 Excel，刷新塔列表"""

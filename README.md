@@ -1,8 +1,8 @@
 # 🌬️ 风语 / WindWhisper
 
-**测风塔数据全自动流水线** — 从网易邮箱自动下载测风塔原始数据 (.rld)，按塔号归档，调用 nrgpy / SymphoniePRO Desktop 解密为可读 .txt 格式。
+**风语 v2.0** — 测风塔数据全自动流水线 — 从网易邮箱自动下载测风塔原始数据 (.rld)，按塔号归档，调用 nrgpy / SymphoniePRO Desktop 解密为可读 .txt 格式。
 
-English: *Automated wind tower data pipeline — POP3 email download → nrgpy decryption → TXT archiving. Desktop GUI + CLI.*
+English: *Automated wind tower data pipeline — POP3 email download → nrgpy decryption → TXT archiving. Desktop GUI + CLI. v2.0: dynamic column matching, display settings, file menu enhancements.*
 
 ---
 
