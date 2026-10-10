@@ -11,8 +11,6 @@
     "SymphoniePRO路径": "C:\\Program Files (x86)\\Renewable NRG Systems\\SymPRO Desktop\\SymPRODesktop.exe"
   },
   "显示": {
-    "字体大小": 10,
-    "图标大小": 48,
-    "角色头像大小": 72
+    "缩放比例": 100
   }
 }

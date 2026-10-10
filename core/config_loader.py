@@ -65,11 +65,9 @@ class Config:
                 r"C:\Program Files (x86)\Renewable NRG Systems\SymPRO Desktop\SymPRODesktop.exe"
             )
         )
-        # 显示设置（字体/图标大小）
+        # 显示设置（缩放比例）
         display = self.data.get("显示", {})
-        self.font_size = display.get("字体大小", 10)
-        self.icon_size = display.get("图标大小", 48)
-        self.char_icon_size = display.get("角色头像大小", 72)
+        self.display_scale = display.get("缩放比例", 100)  # 100=默认, 80=小, 120=大, 150=超大
 
     def _load_config(self):
         """读取 config.json"""
@@ -97,9 +95,7 @@ class Config:
                 "SymphoniePRO路径": "C:\\Program Files (x86)\\Renewable NRG Systems\\SymPRO Desktop\\SymPRODesktop.exe"
             },
             "显示": {
-                "字体大小": 10,
-                "图标大小": 48,
-                "角色头像大小": 72
+                "缩放比例": 100
             }
         }
         try:
@@ -124,9 +120,7 @@ class Config:
             "SymphoniePRO路径": self.sympro_path
         }
         self.data["显示"] = {
-            "字体大小": self.font_size,
-            "图标大小": self.icon_size,
-            "角色头像大小": self.char_icon_size
+            "缩放比例": self.display_scale
         }
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:

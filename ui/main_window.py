@@ -776,14 +776,13 @@ class MainWindow(QMainWindow):
         # 显示设置子菜单
         display_menu = settings_menu.addMenu("显示设置")
 
-        # 字体大小
-        display_menu.addAction(QAction("字体大小...", self, triggered=self._adjust_font_size))
-
-        # 图标大小
-        display_menu.addAction(QAction("图标大小...", self, triggered=self._adjust_icon_size))
-
-        # 角色头像大小
-        display_menu.addAction(QAction("角色头像大小...", self, triggered=self._adjust_char_icon_size))
+        # 缩放比例选项
+        for label, scale in [("紧凑 (80%)", 80), ("标准 (100%)", 100), ("大号 (120%)", 120), ("超大 (150%)", 150)]:
+            action = QAction(label, self, checkable=True)
+            action.setChecked(self.config.display_scale == scale)
+            action.setData(scale)
+            action.triggered.connect(lambda checked, s=scale: self._set_display_scale(s))
+            display_menu.addAction(action)
 
         # 重置显示
         display_menu.addSeparator()
@@ -859,7 +858,19 @@ class MainWindow(QMainWindow):
         self._apply_display_settings()
 
     def _build_char_bar(self):
-        """构建角色按钮栏，返回 (widget, layout, buttons) 以便后续调整大小"""
+        """
+        构建角色按钮栏。
+        角色头像和台词完全由文件驱动——不改代码就能增删换角色。
+        
+        文件位置：
+          resources/icons/characters/  — 放 PNG 头像（文件名随意，但建议用拼音）
+          resources/icons/quotes.txt  — 台词（每行格式：显示名：台词）
+          resources/icons/characters.cfg — 可选：文件名→显示名映射（不用就不用）
+        
+        更换角色：往 characters/ 放新 PNG，删掉不要的旧 PNG
+        更换台词：编辑 quotes.txt，每行一个角色名：台词
+        更换头像：直接覆盖 characters/ 里的同名 PNG
+        """
         import random
 
         char_bar_widget = QWidget()
@@ -873,13 +884,29 @@ class MainWindow(QMainWindow):
         else:
             base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-        # 加载台词
+        # ---- 加载角色名映射（可选文件，不用就自动从文件名推导）----
+        name_map = {}
+        cfg_path = os.path.join(base, "resources", "icons", "characters.cfg")
+        if os.path.exists(cfg_path):
+            # 格式：英文文件名=中文显示名，每行一个
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        eng, chn = line.split("=", 1)
+                        name_map[eng.strip()] = chn.strip()
+
+        # ---- 加载台词 ----
         quotes_dict = {}
         quote_path = os.path.join(base, "resources", "icons", "quotes.txt")
         if os.path.exists(quote_path):
             with open(quote_path, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
+                    if not line:
+                        continue
                     if "：" in line or ":" in line:
                         sep = "：" if "：" in line else ":"
                         name, quote = line.split(sep, 1)
@@ -890,65 +917,60 @@ class MainWindow(QMainWindow):
 
         char_dir = os.path.join(base, "resources", "icons", "characters")
 
-        # 文件名→中文角色名 对照表
-        name_map = {
-            "hanli": "韩立", "yinyue": "银月", "songyu": "宋玉",
-            "ziling": "紫灵", "liuyu": "柳玉", "yanruyan": "燕如焉",
-            "yuanyao": "元瑶", "tihun": "啼魂", "meining": "梅凝",
-            "xuangu": "玄骨", "mupeiling": "慕沛灵", "nangongwan": "南宫婉",
-        }
-
         buttons = []
         count = 0
         if os.path.isdir(char_dir):
             for fn in sorted(os.listdir(char_dir)):
-                if fn.endswith(".png"):
-                    name = fn.replace(".png", "")
-                    display_name = name_map.get(name, name)
+                if not fn.lower().endswith(".png"):
+                    continue
+                # 文件名去掉 .png 作为 key
+                file_key = fn.replace(".png", "").replace(".PNG", "")
+                # 显示名：优先用 characters.cfg 映射，没有就用文件名
+                display_name = name_map.get(file_key, file_key)
 
-                    btn = QPushButton()
-                    icon_size = self.config.char_icon_size
-                    btn_size = icon_size + 24
-                    btn.setFixedSize(btn_size, btn_size)
-                    btn.setIcon(QIcon(os.path.join(char_dir, fn)))
-                    btn.setIconSize(QSize(icon_size, icon_size))
-                    btn.setToolTip("")
-                    btn.setStyleSheet("""
-                        QPushButton { border: 2px solid #555; border-radius: 8px; background: transparent; }
-                        QPushButton:hover { border-color: #aaa; background: rgba(255,255,255,0.1); }
-                    """)
+                btn = QPushButton()
+                char_size = self.config.display_scale and int(72 * self.config.display_scale / 100) or 72
+                btn_size = char_size + int(24 * (self.config.display_scale / 100.0 if self.config.display_scale else 1.0))
+                btn.setFixedSize(btn_size, btn_size)
+                btn.setIcon(QIcon(os.path.join(char_dir, fn)))
+                btn.setIconSize(QSize(char_size, char_size))
+                btn.setToolTip("")
+                btn.setStyleSheet("""
+                    QPushButton { border: 2px solid #555; border-radius: 8px; background: transparent; }
+                    QPushButton:hover { border-color: #aaa; background: rgba(255,255,255,0.1); }
+                """)
 
-                    # 鼠标悬停弹气泡
-                    class QuoteLabel(QLabel):
-                        def __init__(self_ql, parent_btn, char_name, quotes):
-                            super().__init__(parent_btn.window())
-                            self_ql.setWindowFlags(Qt.ToolTip | Qt.FramelessWindowHint)
-                            self_ql.setAttribute(Qt.WA_ShowWithoutActivating)
-                            self_ql.setStyleSheet("""
-                                QLabel { background: #fffef0; color: #3a3020; border: 2px solid #c8b898;
-                                         border-radius: 10px; padding: 10px 14px; font-size: 14px;
-                                         font-family: 'KaiTi','STKaiti','Microsoft YaHei'; }
-                            """)
-                            self_ql.quotes = quotes
-                            self_ql.hide()
-                        def show_quote(self_ql, pos):
-                            if self_ql.quotes:
-                                txt = random.choice(self_ql.quotes)
-                                self_ql.setText(txt)
-                                self_ql.adjustSize()
-                                self_ql.move(pos)
-                                self_ql.show()
-                                QTimer.singleShot(5000, self_ql.hide)
+                # 鼠标悬停弹气泡
+                class QuoteLabel(QLabel):
+                    def __init__(self_ql, parent_btn, char_name, quotes):
+                        super().__init__(parent_btn.window())
+                        self_ql.setWindowFlags(Qt.ToolTip | Qt.FramelessWindowHint)
+                        self_ql.setAttribute(Qt.WA_ShowWithoutActivating)
+                        self_ql.setStyleSheet("""
+                            QLabel { background: #fffef0; color: #3a3020; border: 2px solid #c8b898;
+                                     border-radius: 10px; padding: 10px 14px; font-size: 14px;
+                                     font-family: 'KaiTi','STKaiti','Microsoft YaHei'; }
+                        """)
+                        self_ql.quotes = quotes
+                        self_ql.hide()
+                    def show_quote(self_ql, pos):
+                        if self_ql.quotes:
+                            txt = random.choice(self_ql.quotes)
+                            self_ql.setText(txt)
+                            self_ql.adjustSize()
+                            self_ql.move(pos)
+                            self_ql.show()
+                            QTimer.singleShot(5000, self_ql.hide)
 
-                    popup = QuoteLabel(btn, display_name, quotes_dict.get(display_name, []))
-                    btn.quote_label = popup
-                    btn.enterEvent = lambda e, b=btn: b.quote_label.show_quote(
-                        b.mapToGlobal(QPoint(-60, -50)))
-                    btn.leaveEvent = lambda e, b=btn: b.quote_label.hide()
+                popup = QuoteLabel(btn, display_name, quotes_dict.get(display_name, []))
+                btn.quote_label = popup
+                btn.enterEvent = lambda e, b=btn: b.quote_label.show_quote(
+                    b.mapToGlobal(QPoint(-60, -50)))
+                btn.leaveEvent = lambda e, b=btn: b.quote_label.hide()
 
-                    char_bar.addWidget(btn)
-                    buttons.append(btn)
-                    count += 1
+                char_bar.addWidget(btn)
+                buttons.append(btn)
+                count += 1
         char_bar.addStretch()
 
         return char_bar_widget, char_bar, buttons
@@ -1030,77 +1052,64 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "提示", f"Excel 文件不存在:\n{path}")
 
     # ============================================================
-    # 显示设置
+    # 显示设置 — 统一缩放比例
     # ============================================================
 
-    def _adjust_font_size(self):
-        """调整字体大小"""
-        from PyQt5.QtWidgets import QInputDialog
-        val, ok = QInputDialog.getInt(
-            self, "字体大小", "字体大小 (8-20):",
-            self.config.font_size, 8, 20, 1
-        )
-        if ok:
-            self.config.font_size = val
-            self.config.save()
-            self._apply_display_settings()
-            self.log_widget.append_log(f"字体大小已设为 {val}", "ok")
-
-    def _adjust_icon_size(self):
-        """调整图标大小"""
-        from PyQt5.QtWidgets import QInputDialog
-        val, ok = QInputDialog.getInt(
-            self, "图标大小", "按钮图标大小 (24-96):",
-            self.config.icon_size, 24, 96, 4
-        )
-        if ok:
-            self.config.icon_size = val
-            self.config.save()
-            self._apply_display_settings()
-            self.log_widget.append_log(f"图标大小已设为 {val}", "ok")
-
-    def _adjust_char_icon_size(self):
-        """调整角色头像大小"""
-        from PyQt5.QtWidgets import QInputDialog
-        val, ok = QInputDialog.getInt(
-            self, "角色头像大小", "角色头像大小 (48-128):",
-            self.config.char_icon_size, 48, 128, 4
-        )
-        if ok:
-            self.config.char_icon_size = val
-            self.config.save()
-            self._apply_display_settings()
-            self.log_widget.append_log(f"角色头像大小已设为 {val}", "ok")
+    def _set_display_scale(self, scale):
+        """设置显示缩放比例"""
+        self.config.display_scale = scale
+        self.config.save()
+        self._apply_display_settings()
+        # 更新菜单勾选状态
+        menubar = self.menuBar()
+        for action in menubar.actions():
+            if action.text() == "设置(&S)":
+                for sub_action in action.menu().actions():
+                    if hasattr(sub_action, 'menu') and sub_action.menu():
+                        for item in sub_action.menu().actions():
+                            if item.isCheckable() and item.data() is not None:
+                                item.setChecked(item.data() == scale)
+        self.log_widget.append_log(f"显示缩放已设为 {scale}%", "ok")
 
     def _reset_display(self):
         """重置显示设置为默认"""
-        self.config.font_size = 10
-        self.config.icon_size = 48
-        self.config.char_icon_size = 72
+        self.config.display_scale = 100
         self.config.save()
         self._apply_display_settings()
+        self._set_display_scale(100)
         self.log_widget.append_log("显示设置已重置为默认", "ok")
 
     def _apply_display_settings(self):
-        """应用当前显示设置到界面"""
-        font_size = self.config.font_size
-        icon_size = self.config.icon_size
-        char_size = self.config.char_icon_size
+        """应用缩放比例到整个界面"""
+        scale = self.config.display_scale / 100.0  # 1.0 = 100%
+
+        # 基准值
+        base_font = 10        # 默认字体
+        base_char = 72        # 默认角色头像
+        base_log_font = 10    # 默认日志字体
+
+        # 缩放后的值
+        font_pt = max(7, int(base_font * scale))
+        char_size = int(base_char * scale)
+        log_font_pt = max(7, int(base_log_font * scale))
+        btn_size = char_size + int(24 * scale)
 
         # 全局字体
         app = QApplication.instance()
         font = app.font()
-        font.setPointSize(font_size)
+        font.setPointSize(font_pt)
         app.setFont(font)
 
         # 日志面板字体
-        self.log_widget.setFont(QFont("Consolas", font_size))
+        self.log_widget.setFont(QFont("Consolas", log_font_pt))
 
-        # 角色头像大小
-        btn_size = char_size + 24
+        # 角色头像：框和图标同步缩放
         for btn in getattr(self, 'char_buttons', []):
             btn.setFixedSize(btn_size, btn_size)
             btn.setIconSize(QSize(char_size, char_size))
+            # 强制刷新
+            btn.updateGeometry()
+            btn.update()
 
     # ============================================================
     # 主题和文档
