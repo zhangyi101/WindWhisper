@@ -1038,7 +1038,7 @@ class MainWindow(QMainWindow):
         from PyQt5.QtWidgets import QInputDialog
         val, ok = QInputDialog.getInt(
             self, "字体大小", "字体大小 (8-20):",
-            value=self.config.font_size, minValue=8, maxValue=20, step=1
+            self.config.font_size, 8, 20, 1
         )
         if ok:
             self.config.font_size = val
@@ -1051,7 +1051,7 @@ class MainWindow(QMainWindow):
         from PyQt5.QtWidgets import QInputDialog
         val, ok = QInputDialog.getInt(
             self, "图标大小", "按钮图标大小 (24-96):",
-            value=self.config.icon_size, minValue=24, maxValue=96, step=4
+            self.config.icon_size, 24, 96, 4
         )
         if ok:
             self.config.icon_size = val
@@ -1064,7 +1064,7 @@ class MainWindow(QMainWindow):
         from PyQt5.QtWidgets import QInputDialog
         val, ok = QInputDialog.getInt(
             self, "角色头像大小", "角色头像大小 (48-128):",
-            value=self.config.char_icon_size, minValue=48, maxValue=128, step=4
+            self.config.char_icon_size, 48, 128, 4
         )
         if ok:
             self.config.char_icon_size = val
