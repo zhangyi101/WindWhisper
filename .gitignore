@@ -3,6 +3,9 @@ build/
 dist/
 *.spec
 
+# Installer output (build artifacts, not source)
+installer_output/
+
 # User config (contains private info)
 config.json
 
