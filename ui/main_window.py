@@ -929,14 +929,33 @@ class MainWindow(QMainWindow):
                 display_name = name_map.get(file_key, file_key)
 
                 btn = QPushButton()
-                char_size = self.config.display_scale and int(72 * self.config.display_scale / 100) or 72
-                btn_size = char_size + int(24 * (self.config.display_scale / 100.0 if self.config.display_scale else 1.0))
+                scale_factor = self.config.display_scale / 100.0 if self.config.display_scale else 1.0
+                char_size = int(72 * scale_factor)
+                btn_size = char_size + int(24 * scale_factor)
                 btn.setFixedSize(btn_size, btn_size)
-                btn.setIcon(QIcon(os.path.join(char_dir, fn)))
+
+                # 图片路径存到按钮属性，供 _apply_display_settings 重新加载
+                img_path = os.path.join(char_dir, fn)
+                btn._img_path = img_path
+
+                # 用 QPixmap 加载原图，按目标尺寸平滑放大渲染
+                pixmap = QPixmap(os.path.join(char_dir, fn))
+                if not pixmap.isNull():
+                    if scale_factor > 1.0:
+                        pixmap = pixmap.scaled(
+                            char_size, char_size,
+                            Qt.KeepAspectRatio,
+                            Qt.SmoothTransformation
+                        )
+                    btn_icon = QIcon(pixmap)
+                else:
+                    btn_icon = QIcon(os.path.join(char_dir, fn))
+                btn.setIcon(btn_icon)
                 btn.setIconSize(QSize(char_size, char_size))
                 btn.setToolTip("")
+                # padding:0 覆盖全局 QSS 的 padding，否则会压缩 icon 空间
                 btn.setStyleSheet("""
-                    QPushButton { border: 2px solid #555; border-radius: 8px; background: transparent; }
+                    QPushButton { border: 2px solid #555; border-radius: 8px; background: transparent; padding: 0px; }
                     QPushButton:hover { border-color: #aaa; background: rgba(255,255,255,0.1); }
                 """)
 
@@ -1103,13 +1122,30 @@ class MainWindow(QMainWindow):
         # 日志面板字体
         self.log_widget.setFont(QFont("Consolas", log_font_pt))
 
-        # 角色头像：框和图标同步缩放
-        for btn in getattr(self, 'char_buttons', []):
-            btn.setFixedSize(btn_size, btn_size)
-            btn.setIconSize(QSize(char_size, char_size))
-            # 强制刷新
-            btn.updateGeometry()
-            btn.update()
+        # 角色头像：重新加载图片并按缩放渲染
+        # 不能只调 setIconSize——需要重新用 QPixmap 放大原图
+        if hasattr(self, 'char_buttons') and self.char_buttons:
+            # 获取资源路径
+            if getattr(sys, 'frozen', False):
+                base = sys._MEIPASS
+            else:
+                base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            char_dir = os.path.join(base, "resources", "icons", "characters")
+
+            for btn in self.char_buttons:
+                btn.setFixedSize(btn_size, btn_size)
+                # 从按钮的 styleSheet 里拿不到原始文件路径，
+                # 需要从存储的属性里取
+                img_path = getattr(btn, '_img_path', None)
+                if img_path and os.path.exists(img_path):
+                    pixmap = QPixmap(img_path)
+                    if not pixmap.isNull():
+                        if scale > 1.0:
+                            pixmap = pixmap.scaled(char_size, char_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        btn.setIcon(QIcon(pixmap))
+                btn.setIconSize(QSize(char_size, char_size))
+                btn.updateGeometry()
+                btn.update()
 
     # ============================================================
     # 主题和文档
