@@ -343,12 +343,12 @@ class Config:
 
         返回: list[dict]
             {
-                "full_code": "007331",
-                "short_code": "7331",
-                "project": "禄劝九龙",
+                "full_code": "000000",
+                "short_code": "0000",
+                "project": "示例项目",
                 "start_date": datetime 或 None,
                 "note": "",
-                "decrypt_pwd": "0761"
+                "decrypt_pwd": "1234"
             }
         """
         import openpyxl

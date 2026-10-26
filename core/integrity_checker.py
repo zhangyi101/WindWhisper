@@ -17,18 +17,18 @@ class IntegrityChecker:
 
         参数:
             tower_dir: 塔数据目录路径
-            short_code: 塔短号（如 "7331"）
+            short_code: 塔短号（如 "0000"）
             date_from: datetime 或 date
             date_to: datetime 或 date
 
         返回: dict
             {
-                "short_code": "7331",
+                "short_code": "0000",
                 "is_complete": True/False,
                 "expected": 30,
                 "existing": 28,
                 "missing_dates": ["2026-06-05", ...],
-                "file_list": ["007331_2026-06-01...rld", ...]
+                "file_list": ["000000_2026-06-01...rld", ...]
             }
         """
         result = {

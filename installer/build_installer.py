@@ -31,6 +31,16 @@ def run(cmd, desc):
 
 
 def main():
+    # ---- 0. 敏感信息门禁：发现真实凭据立即中止 ----
+    print(f"\n{'='*60}\n敏感信息门禁检查\n{'='*60}")
+    r = subprocess.run([sys.executable,
+                        str(Path(__file__).resolve().parent / "scan_sensitive.py")],
+                       cwd=str(ROOT))
+    if r.returncode != 0:
+        print("\n[ABORT] 源码或安装包中存在真实凭据，禁止打包。")
+        print("       请删除含真实信息的 config.json，换成 config.json.template 占位符。")
+        return 1
+
     if not VENV_PY.exists():
         print(f"[ERROR] 找不到 venv Python: {VENV_PY}")
         return 1

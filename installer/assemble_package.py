@@ -13,6 +13,7 @@
 import os
 import sys
 import shutil
+import subprocess
 from pathlib import Path
 from datetime import datetime
 
@@ -50,10 +51,21 @@ README_TXT = """============================================================
   · 控制面板 → 程序和功能 中可见「风语」，可「修改」或「卸载」
 
 【四、首次使用前的配置】
-  安装后打开 config.json（或用程序里的「配置」标签页）填写：
+  打开软件 → 「⚙ 配置」标签页，填写：
     · 邮箱账号 + 授权码（网易邮箱 → 设置 → POP3/SMTP/IMAP → 生成授权码）
-    · 测风塔信息表路径（Excel 文件）
+    · 测风塔信息表路径（你的 Excel 文件）
     · 数据存储目录（默认 D:\\测风数据文件）
+    · SymphoniePRO 路径（点「自动检测」可自动找）
+
+  填完点「🔗 测试邮箱连接」验证，成功后再点「💾 保存配置」。
+
+  ★ 配置文件位置：%APPDATA%\\风语\\config.json
+    （即 C:\\Users\\你的用户名\\AppData\\Roaming\\风语\\config.json）
+    放在这里是因为安装目录（Program Files）普通用户没有写权限，
+    配置存用户目录才能正常保存。
+
+  本安装包不含任何邮箱账号或授权码，每个使用者填自己的。
+
   Excel 表格只需包含表头：测风塔编号 / 所属项目 / 密码（数据解析密码）
   列的位置随意，程序按表头名自动识别。
 
@@ -149,6 +161,19 @@ def main():
         total += size
         print(f"  {f.name:28s} {size/1024/1024:8.1f} MB")
     print(f"  {'合计':28s} {total/1024/1024:8.1f} MB")
+
+    # 4. 发布前最后一道门禁：扫描成品目录 + exe 内嵌字符串
+    print(f"\n{'='*60}\n发布前敏感信息扫描\n{'='*60}")
+    r = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve().parent / "scan_sensitive.py"), str(PKG)],
+        cwd=str(ROOT)
+    )
+    if r.returncode != 0:
+        print("\n[ABORT] 安装包内含真实凭据，已删除该安装包，禁止发布！")
+        shutil.rmtree(str(PKG), ignore_errors=True)
+        return 1
+
+    print("\n✅ 安装包干净，可以发布。")
     return 0
 
 
