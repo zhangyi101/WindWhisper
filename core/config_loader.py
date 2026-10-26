@@ -41,13 +41,102 @@ REQUIRED_COLUMNS = ["tower_code", "project", "decrypt_pwd"]
 OPTIONAL_COLUMNS = ["start_date", "short_code", "note"]
 
 
-def get_default_config_path():
-    """获取 config.json 的默认路径（与 exe 同目录）"""
+def get_user_config_dir():
+    """用户配置目录：%APPDATA%\\风语（普通用户可写，不受 Program Files 权限限制）"""
+    appdata = os.environ.get("APPDATA") or os.path.expanduser(r"~\AppData\Roaming")
+    d = os.path.join(appdata, "风语")
+    try:
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        pass
+    return d
+
+
+def get_exe_dir():
+    """程序所在目录（安装目录）"""
     if getattr(sys, 'frozen', False):
-        base = os.path.dirname(sys.executable)
-    else:
-        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base, "config.json")
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def get_default_config_path():
+    """
+    配置路径优先级：
+      1. %APPDATA%\\风语\\config.json   （标准位置，普通用户可写）
+      2. exe 同目录 config.json          （便携版/旧版，迁移到 1）
+      3. 新建默认配置到 1
+    """
+    user_cfg = os.path.join(get_user_config_dir(), "config.json")
+    exe_cfg = os.path.join(get_exe_dir(), "config.json")
+
+    # 1. 用户目录已有 → 直接用
+    if os.path.exists(user_cfg):
+        return user_cfg
+
+    # 2. exe 同目录有（旧版安装或便携版）→ 迁移到用户目录
+    if os.path.exists(exe_cfg):
+        try:
+            import shutil
+            shutil.copy2(exe_cfg, user_cfg)
+            return user_cfg
+        except Exception:
+            # 迁移失败（比如 Program Files 只读）+ 用户目录也写不了 → 退回原路径只读使用
+            pass
+
+    # 3. 都没有 → 用户目录（首次运行会创建默认）
+    return user_cfg
+
+
+def find_symphoniepro():
+    """
+    自动查找 SymphoniePRO Desktop 安装位置。
+    依次检查：配置值 → 常见安装路径 → 注册表 → 磁盘扫描
+    返回第一个存在的路径，找不到返回 ""
+    """
+    candidates = [
+        r"C:\Program Files\Renewable NRG Systems\SymPRO Desktop\SymPRODesktop.exe",
+        r"C:\Program Files (x86)\Renewable NRG Systems\SymPRO Desktop\SymPRODesktop.exe",
+        r"D:\Program Files\Renewable NRG Systems\SymPRO Desktop\SymPRODesktop.exe",
+        r"D:\Program Files (x86)\Renewable NRG Systems\SymPRO Desktop\SymPRODesktop.exe",
+        r"C:\Program Files\Renewable NRG Systems\SymPRO Desktop\SymPRODesktop.exe",
+        r"C:\Renewable NRG Systems\SymPRO Desktop\SymPRODesktop.exe",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+
+    # 注册表：NRG 安装时通常会写卸载项
+    try:
+        import winreg
+        roots = [
+            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+        ]
+        for hive, path in roots:
+            try:
+                key = winreg.OpenKey(hive, path)
+                for i in range(winreg.QueryInfoKey(key)[0]):
+                    try:
+                        sub = winreg.OpenKey(key, winreg.EnumKey(key, i))
+                        try:
+                            name, _ = winreg.QueryValueEx(sub, "DisplayName")
+                        except Exception:
+                            continue
+                        if "symphonie" in str(name).lower() or "sympro" in str(name).lower():
+                            try:
+                                loc, _ = winreg.QueryValueEx(sub, "InstallLocation")
+                                cand = os.path.join(str(loc), "SymPRODesktop.exe")
+                                if os.path.exists(cand):
+                                    return cand
+                            except Exception:
+                                pass
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return ""
 
 
 class Config:
@@ -60,11 +149,16 @@ class Config:
         self.data_root = self._resolve_path(self.data.get("路径", {}).get("数据存储目录", ""))
         self.mail_account = self.data.get("邮箱", {}).get("账号", "")
         self.mail_auth = self.data.get("邮箱", {}).get("授权码", "")
-        self.sympro_path = self._resolve_path(
-            self.data.get("解密", {}).get("SymphoniePRO路径",
-                r"C:\Program Files (x86)\Renewable NRG Systems\SymPRO Desktop\SymPRODesktop.exe"
+        # SymphoniePRO 路径：配置有效就用；否则自动查找
+        _cfg_sympro = self.data.get("解密", {}).get("SymphoniePRO路径", "")
+        _resolved = self._resolve_path(_cfg_sympro) if _cfg_sympro else ""
+        if _resolved and os.path.exists(_resolved):
+            self.sympro_path = _resolved
+        else:
+            _auto = find_symphoniepro()
+            self.sympro_path = _auto if _auto else (
+                _resolved or r"C:\Program Files (x86)\Renewable NRG Systems\SymPRO Desktop\SymPRODesktop.exe"
             )
-        )
         # 显示设置（缩放比例）
         display = self.data.get("显示", {})
         self.display_scale = display.get("缩放比例", 100)  # 100=默认, 80=小, 120=大, 150=超大

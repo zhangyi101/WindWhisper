@@ -256,8 +256,22 @@ def do_install(install_dir, progress_cb=None):
         except Exception as e:
             return False, msgs + [f"复制资源失败: {e}"]
 
-    # 3. config.json（优先从上次卸载的备份恢复）
-    cfg_dst = install_path / "config.json"
+    # 3. config.json（优先从上次卸载的备份恢复；写入 %APPDATA%\风语）
+    user_cfg_dir = Path(os.environ.get(
+        "APPDATA", os.path.expanduser(r"~\AppData\Roaming")
+    )) / APP_NAME
+    cfg_dst = user_cfg_dir / "config.json"
+    legacy_cfg = install_path / "config.json"
+
+    # 旧版把配置放在安装目录 → 迁移到用户目录（新版标准位置）
+    if legacy_cfg.exists() and not cfg_dst.exists():
+        try:
+            user_cfg_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(legacy_cfg), str(cfg_dst))
+            log(f"已迁移旧配置到: {cfg_dst}")
+        except Exception as e:
+            log(f"  [警告] 迁移旧配置失败: {e}")
+
     if not cfg_dst.exists():
         backup = Path(os.environ.get(
             "LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local")
@@ -266,15 +280,20 @@ def do_install(install_dir, progress_cb=None):
         if backup.exists():
             log("发现上次卸载的配置备份，正在恢复 ...")
             try:
+                user_cfg_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(str(backup), str(cfg_dst))
-                log(f"  已恢复配置: {backup}")
+                log(f"  已恢复配置: {cfg_dst}")
             except Exception as e:
                 log(f"  [警告] 恢复备份失败: {e}")
         elif tpl:
             log("创建 config.json ...")
-            shutil.copy2(str(tpl), str(cfg_dst))
+            try:
+                user_cfg_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(str(tpl), str(cfg_dst))
+            except Exception as e:
+                log(f"  [警告] 创建配置失败: {e}")
     else:
-        log("config.json 已存在，保留用户配置")
+        log(f"配置已存在，保留用户配置: {cfg_dst}")
 
     # 4. 更新/卸载程序（供控制面板「修改」「卸载」调用）
     for sub in ("风语_更新.exe", "风语_卸载.exe"):

@@ -18,7 +18,20 @@ def run(cmd, desc):
     print(f"[OK] {desc}", flush=True)
 
 
+def kill_running():
+    """杀掉正在运行的旧版本，否则 dist 会被占用无法覆盖"""
+    import time
+    names = ["风语", "风语_安装", "风语_更新", "风语_卸载"]
+    for n in names:
+        subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"Get-Process -Name '{n}' -ErrorAction SilentlyContinue | Stop-Process -Force"],
+            capture_output=True)
+    time.sleep(2)
+
+
 def main():
+    kill_running()
     # 1. 主程序
     for p in (ROOT / "build", ROOT / "风语.spec"):
         if p.is_dir():

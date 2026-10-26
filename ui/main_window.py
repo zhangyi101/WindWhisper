@@ -440,8 +440,10 @@ class ConfigPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
-        info = QLabel("配置保存在 config.json 中，用记事本也能修改。")
+        info = QLabel(f"配置文件：{self.config.config_path}")
         info.setStyleSheet("color: #888; padding: 4px;")
+        info.setWordWrap(True)
+        info.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(info)
 
         form = QGridLayout()
@@ -489,7 +491,17 @@ class ConfigPanel(QWidget):
         sp_btn = QPushButton("浏览...")
         sp_btn.clicked.connect(lambda: self._browse_file(self.sp_edit, "可执行文件 (*.exe)"))
         sp_layout.addWidget(sp_btn)
+        sp_auto_btn = QPushButton("自动检测")
+        sp_auto_btn.setToolTip("自动搜索 SymphoniePRO Desktop 安装位置")
+        sp_auto_btn.clicked.connect(self._auto_find_sympro)
+        sp_layout.addWidget(sp_auto_btn)
         form.addLayout(sp_layout, 4, 1, 1, 2)
+
+        # 测试邮箱连接
+        self.test_mail_btn = QPushButton("🔗 测试邮箱连接")
+        self.test_mail_btn.setToolTip("用当前填写的账号和授权码实际登录一次网易邮箱")
+        self.test_mail_btn.clicked.connect(self._test_mail)
+        form.addWidget(self.test_mail_btn, 5, 0, 1, 3)
 
         layout.addLayout(form)
 
@@ -513,6 +525,82 @@ class ConfigPanel(QWidget):
         if path:
             self.dir_edit.setText(path)
 
+    def _auto_find_sympro(self):
+        """自动检测 SymphoniePRO 安装位置"""
+        from core.config_loader import find_symphoniepro
+        p = find_symphoniepro()
+        if p:
+            self.sp_edit.setText(p)
+            self.log_widget.append_log(f"✅ 已找到 SymphoniePRO: {p}", "ok")
+        else:
+            self.log_widget.append_log("⚠ 未找到 SymphoniePRO Desktop", "warn")
+            QMessageBox.warning(
+                self, "未找到",
+                "没有在常见位置找到 SymphoniePRO Desktop。\n\n"
+                "请从 NRG Systems 官网下载安装，或用「浏览...」手动指定\n"
+                "SymPRODesktop.exe 的位置。"
+            )
+
+    def _test_mail(self):
+        """实际测试邮箱登录，给出明确诊断"""
+        account = self.mail_edit.text().strip()
+        auth = self.auth_edit.text().strip()
+
+        if not account or not auth:
+            QMessageBox.warning(self, "提示", "请先填写邮箱账号和授权码")
+            return
+
+        self.test_mail_btn.setEnabled(False)
+        self.test_mail_btn.setText("测试中...")
+        self.log_widget.append_log(f"测试邮箱登录：{account}", "info")
+        QApplication.processEvents()
+
+        try:
+            import poplib
+            import ssl
+            ctx = ssl.create_default_context()
+            conn = poplib.POP3_SSL("pop.163.com", 995, context=ctx, timeout=30)
+            try:
+                conn.user(account)
+                conn.pass_(auth)
+                n = len(conn.list()[1])
+                self.log_widget.append_log(f"✅ 登录成功，共 {n} 封邮件", "ok")
+                QMessageBox.information(self, "登录成功",
+                                        f"邮箱连接正常！\n\n共 {n} 封邮件。")
+                try:
+                    conn.quit()
+                except Exception:
+                    pass
+            except Exception as e:
+                msg = str(e)
+                self.log_widget.append_log(f"❌ 登录失败: {msg}", "error")
+                hint = (
+                    "服务器拒绝了登录，常见原因：\n\n"
+                    "1) 授权码不正确\n"
+                    "   · 授权码是 16 位字母数字，不是邮箱登录密码\n"
+                    "   · 复制时不要带空格或换行\n"
+                    "   · 到 163 邮箱网页版 → 设置 → POP3/SMTP/IMAP 重新生成\n\n"
+                    "2) POP3 服务未开启\n"
+                    "   同一页面确认「POP3/SMTP服务」处于开启状态\n\n"
+                    "3) 新设备/异地登录被风控\n"
+                    "   登录网页版邮箱按提示完成验证，或重新生成授权码"
+                )
+                QMessageBox.critical(self, "登录失败",
+                                     f"服务器返回：\n{msg}\n\n{hint}")
+                try:
+                    conn.quit()
+                except Exception:
+                    pass
+        except Exception as e:
+            self.log_widget.append_log(f"❌ 无法连接服务器: {e}", "error")
+            QMessageBox.critical(
+                self, "无法连接",
+                f"连不上 pop.163.com:995\n\n{e}\n\n请检查网络、防火墙或代理设置。"
+            )
+        finally:
+            self.test_mail_btn.setEnabled(True)
+            self.test_mail_btn.setText("🔗 测试邮箱连接")
+
     def _save(self):
         self.config.mail_account = self.mail_edit.text().strip()
         self.config.mail_auth = self.auth_edit.text().strip()
@@ -521,12 +609,19 @@ class ConfigPanel(QWidget):
         self.config.sympro_path = self.sp_edit.text().strip()
 
         if self.config.save():
-            self.log_widget.append_log("配置已保存", "ok")
-            # 通知主窗口刷新塔列表
+            self.log_widget.append_log(f"配置已保存: {self.config.config_path}", "ok")
             if self.main_window:
                 self.main_window._reload_config()
         else:
-            self.log_widget.append_log("配置保存失败", "error")
+            self.log_widget.append_log(f"❌ 配置保存失败: {self.config.config_path}", "error")
+            QMessageBox.critical(
+                self, "保存失败",
+                f"无法写入配置文件：\n{self.config.config_path}\n\n"
+                "可能原因：\n"
+                "  · 文件被占用（先关闭其他实例）\n"
+                "  · 目录没有写权限\n\n"
+                "请检查后重试。"
+            )
 
 
 class SchedulePanel(QWidget):

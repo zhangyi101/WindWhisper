@@ -156,15 +156,21 @@ def do_uninstall(install_dir, delete_config=False, progress_cb=None):
                         else:
                             log(f"  [警告] {exe} 被占用，无法删除")
 
-        # config.json：保留时备份到用户目录，删除时直接删
-        cfg = ip / "config.json"
-        if cfg.exists():
+        # config.json：可能在安装目录（旧版）或 %APPDATA%（新版标准位置）
+        cfg_locations = [
+            ip / "config.json",
+            Path(os.environ.get("APPDATA", os.path.expanduser(r"~\AppData\Roaming"))) / APP_NAME / "config.json",
+        ]
+        existing_cfgs = [c for c in cfg_locations if c.exists()]
+
+        if existing_cfgs:
             if delete_config:
-                try:
-                    cfg.unlink()
-                    log("  已删除 config.json")
-                except Exception as e:
-                    log(f"  [警告] 删除 config.json 失败: {e}")
+                for c in existing_cfgs:
+                    try:
+                        c.unlink()
+                        log(f"  已删除 {c}")
+                    except Exception as e:
+                        log(f"  [警告] 删除 {c} 失败: {e}")
             else:
                 backup_dir = Path(os.environ.get(
                     "LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local")
@@ -172,15 +178,16 @@ def do_uninstall(install_dir, delete_config=False, progress_cb=None):
                 try:
                     backup_dir.mkdir(parents=True, exist_ok=True)
                     backup_file = backup_dir / "config.json.bak"
-                    shutil.copy2(str(cfg), str(backup_file))
-                    log(f"  config.json 已备份到: {backup_file}")
+                    # 优先备份新版位置的配置
+                    src = existing_cfgs[-1]
+                    shutil.copy2(str(src), str(backup_file))
+                    log(f"  配置已备份: {src} → {backup_file}")
                 except Exception as e:
-                    # 备份失败就退回到复制到桌面
                     try:
                         desktop = Path(os.environ.get("USERPROFILE", "")) / "Desktop"
                         fallback = desktop / "风语_config备份.json"
-                        shutil.copy2(str(cfg), str(fallback))
-                        log(f"  config.json 已备份到桌面: {fallback}")
+                        shutil.copy2(str(existing_cfgs[-1]), str(fallback))
+                        log(f"  配置已备份到桌面: {fallback}")
                     except Exception:
                         log(f"  [警告] 配置备份失败: {e}")
 
@@ -218,19 +225,22 @@ def do_uninstall(install_dir, delete_config=False, progress_cb=None):
     else:
         log("安装目录不存在，跳过文件删除")
 
-    # 4. 清理配置备份目录（purge 时一并删）
-    backup_dir = Path(os.environ.get(
-        "LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local")
-    )) / APP_NAME
-    if backup_dir.exists():
+    # 4. 清理用户目录（备份目录 + 配置目录），purge 时一并删
+    app_dirs = [
+        Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local"))) / APP_NAME,
+        Path(os.environ.get("APPDATA", os.path.expanduser("~\\AppData\\Roaming"))) / APP_NAME,
+    ]
+    for d in app_dirs:
+        if not d.exists():
+            continue
         if delete_config:
             try:
-                shutil.rmtree(str(backup_dir), ignore_errors=True)
-                log(f"  配置备份目录已删除: {backup_dir}")
+                shutil.rmtree(str(d), ignore_errors=True)
+                log(f"  已删除用户配置目录: {d}")
             except Exception as e:
-                log(f"  [警告] 删除备份目录失败: {e}")
+                log(f"  [警告] 删除 {d} 失败: {e}")
         else:
-            log(f"  配置备份保留: {backup_dir}")
+            log(f"  用户配置保留: {d}")
 
     return True, msgs
 
