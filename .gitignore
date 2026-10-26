@@ -6,6 +6,9 @@ dist/
 # Installer output (build artifacts, not source)
 installer_output/
 
+# Assembled release package (build artifacts)
+安装包_*/
+
 # User config (contains private info)
 config.json
 

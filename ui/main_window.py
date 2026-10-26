@@ -693,7 +693,7 @@ class MainWindow(QMainWindow):
     """风语主窗口 v2.0"""
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("风语 v2.0 — 测风塔数据自动化工具")
+        self.setWindowTitle("风语 v2.1 — 测风塔数据自动化工具")
         self.setMinimumSize(900, 650)
 
         # 初始化核心
