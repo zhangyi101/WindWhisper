@@ -241,48 +241,60 @@ def run_gui():
 
     root = tk.Tk()
     root.title(f"{APP_NAME} 卸载程序")
-    root.geometry("560x400")
-    root.resizable(False, False)
+    root.geometry("640x620")
+    root.minsize(620, 580)
+    root.resizable(False, True)
 
-    tk.Label(root, text=f"{APP_NAME} 卸载", font=("Microsoft YaHei", 16, "bold")).pack(pady=(18, 2))
-    tk.Label(root, text="删除程序文件、桌面快捷方式与注册表项",
-             font=("Microsoft YaHei", 9), fg="#666").pack()
+    # 顶部标题
+    header = tk.Frame(root)
+    header.pack(side="top", fill="x", pady=(16, 0))
+    tk.Label(header, text=f"{APP_NAME} 卸载", font=("Microsoft YaHei", 16, "bold")).pack()
+    tk.Label(header, text="删除程序文件、桌面快捷方式与注册表项",
+             font=("Microsoft YaHei", 9), fg="#666").pack(pady=(2, 0))
 
-    frame = tk.Frame(root, padx=24, pady=16)
-    frame.pack(fill="both", expand=True)
+    # 底部按钮区（先占位，避免被内容挤掉）
+    btn_frame = tk.Frame(root)
+    btn_frame.pack(side="bottom", fill="x", pady=14)
+
+    # 中间内容
+    frame = tk.Frame(root, padx=20, pady=8)
+    frame.pack(side="top", fill="both", expand=True)
 
     detected = find_install_dir()
-    tk.Label(frame, text="安装目录：", font=("Microsoft YaHei", 10)).grid(row=0, column=0, sticky="w", pady=6)
+    path_row = tk.Frame(frame)
+    path_row.pack(fill="x", pady=(6, 4))
+    tk.Label(path_row, text="安装目录：", font=("Microsoft YaHei", 10)).pack(side="left")
     path_var = tk.StringVar(value=detected or "")
-    tk.Entry(frame, textvariable=path_var, width=44, font=("Consolas", 9)).grid(row=0, column=1, sticky="w")
+    tk.Entry(path_row, textvariable=path_var, width=42,
+             font=("Consolas", 9)).pack(side="left", fill="x", expand=True, padx=(0, 6))
 
     def browse():
         d = filedialog.askdirectory(title="选择风语安装目录", initialdir=path_var.get() or "C:/")
         if d:
             path_var.set(os.path.normpath(d))
 
-    tk.Button(frame, text="浏览...", command=browse, width=8).grid(row=0, column=2, padx=6)
+    tk.Button(path_row, text="浏览...", command=browse, width=7).pack(side="left")
 
     status = f"检测到安装：{detected}" if detected else "未在注册表中检测到风语安装。"
     tk.Label(frame, text=status, justify="left", anchor="w", font=("Microsoft YaHei", 9),
-             fg="#2e7d32" if detected else "#c62828").grid(
-        row=1, column=0, columnspan=3, sticky="w", pady=(6, 8))
+             fg="#2e7d32" if detected else "#c62828").pack(fill="x", pady=(4, 8))
 
     # 保留配置选项
     keep_var = tk.BooleanVar(value=True)
-    tk.Checkbutton(frame, text="保留 config.json（邮箱授权码、路径配置）",
-                   variable=keep_var, font=("Microsoft YaHei", 9)).grid(
-        row=2, column=0, columnspan=3, sticky="w", pady=4)
+    tk.Checkbutton(frame, text="保留 config.json（邮箱授权码、路径配置）\n"
+                              "保留时会备份到用户目录，重装自动恢复",
+                   variable=keep_var, font=("Microsoft YaHei", 9),
+                   justify="left").pack(anchor="w", pady=(2, 6))
 
-    tip = ("不删除：测风数据目录（D:\\测风数据文件）\n"
-           "        以及 SymphoniePRO Desktop 等第三方软件")
+    tip = ("不删除：测风数据目录（D:\\测风数据文件）以及 SymphoniePRO Desktop 等第三方软件")
     tk.Label(frame, text=tip, justify="left", anchor="w",
-             font=("Microsoft YaHei", 8), fg="#888").grid(
-        row=3, column=0, columnspan=3, sticky="w", pady=(2, 6))
+             font=("Microsoft YaHei", 8), fg="#888").pack(fill="x", pady=(0, 8))
 
-    log_box = tk.Text(frame, height=7, width=62, font=("Consolas", 8), state="disabled",
-                      bg="#f5f5f5", relief="solid", borderwidth=1)
-    log_box.grid(row=4, column=0, columnspan=3, pady=6)
+    tk.Label(frame, text="卸载进度：", font=("Microsoft YaHei", 9),
+             anchor="w").pack(fill="x")
+    log_box = tk.Text(frame, height=7, font=("Consolas", 8), state="disabled",
+                      bg="#f7f7f7", relief="solid", borderwidth=1, wrap="word")
+    log_box.pack(fill="both", expand=True, pady=(2, 6))
 
     def append_log(t):
         log_box.config(state="normal")
@@ -290,9 +302,6 @@ def run_gui():
         log_box.see("end")
         log_box.config(state="disabled")
         root.update_idletasks()
-
-    btn_frame = tk.Frame(root, pady=12)
-    btn_frame.pack()
 
     def start_uninstall():
         target = path_var.get().strip()
@@ -318,11 +327,13 @@ def run_gui():
             messagebox.showerror("卸载失败", "\n".join(msgs[-3:]))
             un_btn.config(state="normal")
 
-    un_btn = tk.Button(btn_frame, text="确认卸载", command=start_uninstall,
+    inner_btn = tk.Frame(btn_frame)
+    inner_btn.pack()
+    un_btn = tk.Button(inner_btn, text="确认卸载", command=start_uninstall,
                        width=16, height=2, bg="#c62828", fg="white",
                        font=("Microsoft YaHei", 10, "bold"))
     un_btn.pack(side="left", padx=8)
-    tk.Button(btn_frame, text="取消", command=root.destroy, width=10, height=2,
+    tk.Button(inner_btn, text="取消", command=root.destroy, width=10, height=2,
               font=("Microsoft YaHei", 10)).pack(side="left", padx=8)
 
     root.mainloop()

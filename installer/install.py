@@ -316,29 +316,40 @@ def run_gui():
 
     root = tk.Tk()
     root.title(f"{APP_NAME} 安装程序 v{APP_VERSION}")
-    root.geometry("560x420")
-    root.resizable(False, False)
+    root.geometry("640x620")
+    root.minsize(620, 600)
+    root.resizable(False, True)
 
-    # 顶部标题
-    tk.Label(root, text=f"{APP_NAME} (WindWhisper)", font=("Microsoft YaHei", 16, "bold")).pack(pady=(18, 2))
-    tk.Label(root, text="测风塔数据自动化工具 · 安装程序",
-             font=("Microsoft YaHei", 9), fg="#666").pack()
+    # ===== 顶部标题区 =====
+    header = tk.Frame(root)
+    header.pack(side="top", fill="x", pady=(16, 0))
+    tk.Label(header, text=f"{APP_NAME} (WindWhisper)",
+             font=("Microsoft YaHei", 16, "bold")).pack()
+    tk.Label(header, text="测风塔数据自动化工具 · 安装程序",
+             font=("Microsoft YaHei", 9), fg="#666").pack(pady=(2, 0))
 
-    frame = tk.Frame(root, padx=24, pady=16)
-    frame.pack(fill="both", expand=True)
+    # ===== 底部按钮区（先占位，避免被内容挤掉）=====
+    btn_frame = tk.Frame(root)
+    btn_frame.pack(side="bottom", fill="x", pady=14)
+
+    # ===== 中间内容区 =====
+    frame = tk.Frame(root, padx=20, pady=8)
+    frame.pack(side="top", fill="both", expand=True)
 
     # 安装路径
-    tk.Label(frame, text="安装目录：", font=("Microsoft YaHei", 10)).grid(row=0, column=0, sticky="w", pady=6)
+    path_row = tk.Frame(frame)
+    path_row.pack(fill="x", pady=(6, 4))
+    tk.Label(path_row, text="安装目录：", font=("Microsoft YaHei", 10)).pack(side="left")
     path_var = tk.StringVar(value=DEFAULT_INSTALL_DIR)
-    path_entry = tk.Entry(frame, textvariable=path_var, width=44, font=("Consolas", 9))
-    path_entry.grid(row=0, column=1, sticky="w", pady=6)
+    tk.Entry(path_row, textvariable=path_var, width=42,
+             font=("Consolas", 9)).pack(side="left", fill="x", expand=True, padx=(0, 6))
 
     def browse():
         d = filedialog.askdirectory(title="选择安装目录", initialdir=path_var.get())
         if d:
             path_var.set(os.path.normpath(d))
 
-    tk.Button(frame, text="浏览...", command=browse, width=8).grid(row=0, column=2, padx=6)
+    tk.Button(path_row, text="浏览...", command=browse, width=7).pack(side="left")
 
     # 说明
     info = (
@@ -346,18 +357,25 @@ def run_gui():
         "  · 风语.exe 主程序（已内置 Python 运行环境，无需另装）\n"
         "  · resources/ 主题与角色头像\n"
         "  · config.json 配置文件模板\n"
-        "  · 更新/卸载程序（控制面板「修改」「卸载」可用）\n\n"
-        "将在桌面创建快捷方式「风语」。\n\n"
-        "注意：解密 .rld 文件需另装 SymphoniePRO Desktop（NRG 官方软件）。"
+        "  · 更新/卸载程序（控制面板「修改」「卸载」可用）\n"
+        "  · 将在桌面创建快捷方式「风语」"
     )
-    tk.Label(frame, text=info, justify="left", anchor="w",
-             font=("Microsoft YaHei", 9), fg="#333").grid(
-        row=1, column=0, columnspan=3, sticky="w", pady=(10, 8))
+    info_label = tk.Label(frame, text=info, justify="left", anchor="w",
+                          font=("Microsoft YaHei", 9), fg="#333")
+    info_label.pack(fill="x", pady=(8, 4))
+
+    warn_label = tk.Label(
+        frame,
+        text="注意：解密 .rld 文件需另装 SymphoniePRO Desktop（NRG 官方软件）",
+        justify="left", anchor="w", font=("Microsoft YaHei", 8), fg="#b26a00")
+    warn_label.pack(fill="x", pady=(0, 8))
 
     # 进度日志
-    log_box = tk.Text(frame, height=7, width=62, font=("Consolas", 8), state="disabled",
-                      bg="#f5f5f5", relief="solid", borderwidth=1)
-    log_box.grid(row=2, column=0, columnspan=3, pady=6)
+    tk.Label(frame, text="安装进度：", font=("Microsoft YaHei", 9),
+             anchor="w").pack(fill="x")
+    log_box = tk.Text(frame, height=8, font=("Consolas", 8), state="disabled",
+                      bg="#f7f7f7", relief="solid", borderwidth=1, wrap="word")
+    log_box.pack(fill="both", expand=True, pady=(2, 6))
 
     def append_log(text):
         log_box.config(state="normal")
@@ -365,10 +383,6 @@ def run_gui():
         log_box.see("end")
         log_box.config(state="disabled")
         root.update_idletasks()
-
-    # 按钮区
-    btn_frame = tk.Frame(root, pady=12)
-    btn_frame.pack()
 
     def start_install():
         target = path_var.get().strip()
@@ -406,11 +420,13 @@ def run_gui():
             install_btn.config(state="normal")
             browse_btn.config(state="normal")
 
-    install_btn = tk.Button(btn_frame, text="开始安装", command=start_install,
+    inner_btn = tk.Frame(btn_frame)
+    inner_btn.pack()  # 居中
+    install_btn = tk.Button(inner_btn, text="开始安装", command=start_install,
                             width=16, height=2, bg="#2e7d32", fg="white",
                             font=("Microsoft YaHei", 10, "bold"))
     install_btn.pack(side="left", padx=8)
-    browse_btn = tk.Button(btn_frame, text="取消", command=root.destroy,
+    browse_btn = tk.Button(inner_btn, text="取消", command=root.destroy,
                            width=10, height=2, font=("Microsoft YaHei", 10))
     browse_btn.pack(side="left", padx=8)
 
